@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FacttoGo — Decentralized Fact-Checking</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    * { font-family: 'Inter', system-ui, sans-serif; }
+    body { background: #09090b; color: #fafafa; }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const SAMPLES = [
+      "Vaccines cause autism.",
+      "Humans only use 10% of their brain.",
+      "The Great Wall of China is visible from space.",
+    ];
+
+    function App() {
+      const [claim, setClaim] = useState("");
+      const [loading, setLoading] = useState(false);
+      const [step, setStep] = useState(0);
+      const [result, setResult] = useState(null);
+      const [error, setError] = useState(null);
+      const [history, setHistory] = useState([]);
+      const [tab, setTab] = useState("check");
+      const [proofOpen, setProofOpen] = useState(false);
+      const [challenges, setChallenges] = useState({});       // { "Science Agent": { loading, data, error } }
+
+      useEffect(() => { fetch("/api/history").then(r => r.ok ? r.json() : []).then(setHistory).catch(() => {}); }, []);
+
+      const challengeAgent = async (agent) => {
+        const key = agent.agent_name;
+        setChallenges(prev => ({ ...prev, [key]: { loading: true, data: null, error: null } }));
+        try {
+          const res = await fetch("/api/challenge-agent", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              claim: result.claim,
+              agent_name: agent.agent_name,
+              agent_verdict: agent.verdict,
+              agent_confidence: agent.confidence,
+              agent_reasoning: agent.reasoning,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Challenge failed");
+          setChallenges(prev => ({ ...prev, [key]: { loading: false, data, error: null } }));
+        } catch (e) {
+          setChallenges(prev => ({ ...prev, [key]: { loading: false, data: null, error: e.message } }));
+        }
+      };
+
+      const check = async (text) => {
+        const q = (text || claim).trim();
+        if (!q) return;
+        setLoading(true); setError(null); setResult(null); setTab("check"); setChallenges({});
+        setStep(1);
+        const t1 = setTimeout(() => setStep(2), 1000);
+        const t2 = setTimeout(() => setStep(3), 2200);
+        const t3 = setTimeout(() => setStep(4), 3400);
+        try {
+          const res = await fetch("/api/factcheck", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ claim: q }) });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Analysis failed");
+          setResult(data);
+          fetch("/api/history").then(r => r.ok ? r.json() : []).then(setHistory).catch(() => {});
+        } catch (e) { setError(e.message); }
+        finally { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); setLoading(false); setStep(0); }
+      };
+
+      const badge = (v, contested) => {
+        if (contested || v === "Contested") return { label: "Contested", color: "text-amber-400 bg-amber-400/10 border-amber-400/30", accent: "border-amber-500/40" };
+        if (v === "False") return { label: "False", color: "text-red-400 bg-red-400/10 border-red-400/30", accent: "border-red-500/40" };
+        if (v === "True") return { label: "Verified True", color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", accent: "border-emerald-500/40" };
+        if (v === "Mostly True") return { label: "Mostly True", color: "text-sky-400 bg-sky-400/10 border-sky-400/30", accent: "border-sky-500/40" };
+        return { label: "Insufficient Evidence", color: "text-zinc-400 bg-zinc-400/10 border-zinc-400/30", accent: "" };
+      };
+
+      const icon = (n) => n.includes("Science") ? "🔬" : n.includes("Health") ? "🩺" : n.includes("Politics") ? "🏛️" : "🧠";
+
+      // ──── Hero / Search (shown when no result yet) ────
+      const heroView = (
+        <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
+          <div className="mb-8 text-center">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-800/80 border border-zinc-700/60 text-[11px] text-zinc-400 mb-6">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              4-Agent GenAI Consensus · Evidence-Grounded · On-Chain Proof
+            </div>
+            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white mb-3">FacttoGo</h1>
+            <p className="text-zinc-400 text-sm max-w-md mx-auto">Paste any claim. We search the web, query 4 specialized AI agents, and return a consensus verdict with cryptographic proof.</p>
+          </div>
+
+          <form onSubmit={e => { e.preventDefault(); check(); }} className="w-full max-w-2xl space-y-3">
+            <div className="relative">
+              <textarea
+                rows="2"
+                value={claim}
+                onChange={e => setClaim(e.target.value)}
+                placeholder="Enter a claim to fact-check..."
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-5 py-4 text-[15px] text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/60 focus:border-transparent resize-none"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex gap-1.5 flex-wrap">
+                {SAMPLES.map((s, i) => (
+                  <button key={i} type="button" onClick={() => { setClaim(s); check(s); }}
+                    className="text-[11px] px-2.5 py-1 rounded-md bg-zinc-800/70 hover:bg-zinc-700/70 text-zinc-400 hover:text-zinc-200 border border-zinc-700/40 transition truncate max-w-[180px]"
+                    title={s}>{s}</button>
+                ))}
+              </div>
+              <button type="submit" disabled={loading || !claim.trim()}
+                className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-semibold transition">
+                {loading ? "Analyzing..." : "Verify →"}
+              </button>
+            </div>
+          </form>
+        </div>
+      );
+
+      // ──── Loading ────
+      const loadingView = (
+        <div className="max-w-2xl mx-auto mt-8 p-6 rounded-xl bg-zinc-900/60 border border-zinc-800 text-center space-y-4">
+          <div className="flex items-center justify-center gap-2 text-sm text-indigo-300 font-medium">
+            <span className="h-2 w-2 rounded-full bg-indigo-500 animate-ping"></span>
+            Analyzing claim across 4 agents...
+          </div>
+          <div className="grid grid-cols-4 gap-2 text-[11px] font-medium">
+            {["🌐 Search", "🤖 Agents", "⚖️ Consensus", "⛓️ Proof"].map((s, i) => (
+              <div key={i} className={`py-2 rounded-lg border transition-all duration-300 ${step > i ? 'bg-indigo-950/60 border-indigo-500/50 text-indigo-200' : 'bg-zinc-950/40 border-zinc-800 text-zinc-600'}`}>{s}</div>
+            ))}
+          </div>
+        </div>
+      );
+
+      // ──── Results ────
+      const resultsView = result && (() => {
+        const b = badge(result.final_verdict, result.is_contested);
+        return (
+          <div className="max-w-4xl mx-auto mt-6 space-y-5 px-4">
+            {/* Back + new check bar */}
+            <div className="flex items-center justify-between">
+              <button onClick={() => setResult(null)} className="text-xs text-zinc-400 hover:text-white transition">← New check</button>
+              <div className="flex gap-2">
+                <button onClick={() => setProofOpen(true)} className="text-[11px] px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/60 transition">⛓️ Proof Details</button>
+                <button onClick={() => setTab("history")} className="text-[11px] px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/60 transition">📜 History</button>
+              </div>
+            </div>
+
+            {/* Claim + Verdict Card */}
+            <div className={`rounded-xl border p-6 bg-zinc-900/80 ${b.accent} space-y-4`}>
+              <p className="text-[13px] text-zinc-300 leading-relaxed">"{result.claim}"</p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span className={`text-sm font-bold px-3 py-1 rounded-lg border ${b.color}`}>{b.label}</span>
+                <div className="flex items-center gap-3 text-xs text-zinc-400">
+                  <span>Confidence: <span className="text-white font-semibold">{Math.round(result.overall_confidence * 100)}%</span></span>
+                  <div className="w-20 bg-zinc-800 rounded-full h-1.5">
+                    <div className="bg-indigo-500 h-1.5 rounded-full" style={{width: `${Math.round(result.overall_confidence * 100)}%`}}></div>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-400 leading-relaxed">{result.consensus_summary}</p>
+            </div>
+
+            {/* Agent Grid */}
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-300 mb-3">Agent Evaluations</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {result.agents.map((a, i) => {
+                  const ab = badge(a.verdict, false);
+                  const ch = challenges[a.agent_name];
+                  const challengeBadge = (status) => {
+                    if (status === "NO_SIGNIFICANT_CHALLENGE") return { label: "No Challenge", color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", icon: "✅" };
+                    if (status === "WEAK_CHALLENGE") return { label: "Weak Challenge", color: "text-sky-400 bg-sky-400/10 border-sky-400/30", icon: "🔵" };
+                    if (status === "STRONG_CHALLENGE") return { label: "Strong Challenge", color: "text-amber-400 bg-amber-400/10 border-amber-400/30", icon: "🟠" };
+                    if (status === "VERDICT_INVALIDATED") return { label: "Verdict Invalidated", color: "text-red-400 bg-red-400/10 border-red-400/30", icon: "🔴" };
+                    return { label: status, color: "text-zinc-400 bg-zinc-400/10 border-zinc-400/30", icon: "❓" };
+                  };
+                  return (
+                    <div key={i} className="rounded-xl bg-zinc-900/60 border border-zinc-800/80 p-4 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-white flex items-center gap-2">
+                          {icon(a.agent_name)} {a.agent_name}
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${ab.color}`}>{a.verdict}</span>
+                      </div>
+                      {a.model_id && (
+                        <p className="text-[10px] text-indigo-300/80">
+                          {String(a.model_id).startsWith("specialist-") ? "Trained specialist model" : "Shared LLM fallback"} · {a.model_id}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-zinc-400 leading-relaxed">{a.reasoning}</p>
+
+                      {/* Fact Check Button */}
+                      {!ch && (
+                        <button
+                          onClick={() => challengeAgent(a)}
+                          className="mt-1 w-full py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition flex items-center justify-center gap-1.5"
+                        >
+                          🔍 Fact-Check This Agent
+                        </button>
+                      )}
+
+                      {/* Loading state */}
+                      {ch && ch.loading && (
+                        <div className="mt-2 p-3 rounded-lg bg-zinc-950/60 border border-zinc-700/50 text-center">
+                          <div className="flex items-center justify-center gap-2 text-[11px] text-amber-300">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping"></span>
+                            Devil's Advocate is challenging this verdict...
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Error state */}
+                      {ch && ch.error && (
+                        <div className="mt-2 p-3 rounded-lg bg-red-950/30 border border-red-500/30 text-[11px] text-red-300">
+                          Error: {ch.error}
+                          <button onClick={() => challengeAgent(a)} className="ml-2 underline">Retry</button>
+                        </div>
+                      )}
+
+                      {/* Challenge Result */}
+                      {ch && ch.data && (() => {
+                        const d = ch.data;
+                        const cb = challengeBadge(d.challenge_status);
+                        return (
+                          <div className="mt-2 p-3 rounded-lg bg-zinc-950/80 border border-zinc-700/50 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
+                                😈 Devil's Advocate
+                              </span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${cb.color}`}>
+                                {cb.icon} {cb.label}
+                              </span>
+                            </div>
+
+                            {/* Stats */}
+                            <div className="flex items-center gap-3 text-[10px] text-zinc-500">
+                              <span>✓ {d.sources_analyzed} sources analyzed</span>
+                              {d.contradictory_sources_found > 0 && (
+                                <span className="text-amber-400">⚠ {d.contradictory_sources_found} contradictory</span>
+                              )}
+                            </div>
+
+                            {/* Explanation */}
+                            <p className="text-[11px] text-zinc-400 leading-relaxed italic">"{d.explanation}"</p>
+
+                            {/* Contradicting evidence */}
+                            {d.contradicting_evidence && d.contradicting_evidence.length > 0 && (
+                              <div className="space-y-1">
+                                <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider">Contradicting Evidence</span>
+                                {d.contradicting_evidence.map((e, j) => (
+                                  <p key={j} className="text-[11px] text-zinc-400 pl-2 border-l-2 border-amber-500/40">⚠ {e}</p>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Challenge Sources */}
+                            {d.challenge_sources && d.challenge_sources.length > 0 && (
+                              <div className="space-y-1 pt-1 border-t border-zinc-800/60">
+                                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Challenge Sources</span>
+                                {d.challenge_sources.map((s, j) => (
+                                  <a key={j} href={s.url} target="_blank" rel="noreferrer" className="block text-[10px] text-indigo-400 hover:underline truncate">
+                                    [{j+1}] {s.title} ↗
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Suggested verdict if different */}
+                            {d.suggested_verdict !== d.original_verdict && (
+                              <div className="pt-1.5 border-t border-zinc-800/60 flex items-center gap-2 text-[11px]">
+                                <span className="text-zinc-500">DA suggests:</span>
+                                <span className={`font-bold px-1.5 py-0.5 rounded border ${badge(d.suggested_verdict, false).color}`}>
+                                  {d.suggested_verdict} ({Math.round(d.suggested_confidence * 100)}%)
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Sources */}
+            {result.sources && result.sources.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-300 mb-3">Sources ({result.sources.length})</h3>
+                <div className="space-y-2">
+                  {result.sources.map((s, i) => (
+                    <div key={i} className="p-3 rounded-lg bg-zinc-900/60 border border-zinc-800/60">
+                      <a href={s.url} target="_blank" rel="noreferrer" className="text-xs font-medium text-indigo-400 hover:underline">[{i+1}] {s.title} ↗</a>
+                      <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">{s.snippet}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })();
+
+      // ──── History ────
+      const historyView = (
+        <div className="max-w-3xl mx-auto mt-6 space-y-4 px-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-white">Fact-Check Ledger</h2>
+            <button onClick={() => setTab("check")} className="text-xs text-zinc-400 hover:text-white">← Back</button>
+          </div>
+          {history.length === 0 ? (
+            <p className="text-sm text-zinc-500 text-center py-12">No claims checked yet.</p>
+          ) : history.map(item => {
+            const hb = badge(item.final_verdict, item.is_contested);
+            return (
+              <div key={item.id} className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-zinc-500">{new Date(item.timestamp).toLocaleString()}</span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${hb.color}`}>{item.final_verdict}</span>
+                </div>
+                <p className="text-sm font-medium text-white">{item.claim}</p>
+                <p className="text-[11px] text-zinc-400">{item.consensus_summary}</p>
+                <div className="flex items-center justify-between pt-1 text-[11px] text-zinc-500">
+                  <code>{item.blockchain_tx ? item.blockchain_tx.slice(0, 18) + "..." : "—"}</code>
+                  <button onClick={() => { setResult(item); setTab("check"); }} className="text-indigo-400 hover:text-indigo-300 font-medium">View →</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+
+      // ──── Proof Modal ────
+      const proofModal = proofOpen && result && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setProofOpen(false)}>
+          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl max-w-lg w-full p-6 space-y-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">⛓️ Cryptographic Proof</h3>
+              <button onClick={() => setProofOpen(false)} className="text-zinc-500 hover:text-white text-lg">✕</button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <span className="text-zinc-500 uppercase text-[10px] font-semibold tracking-wider">Proof Hash</span>
+                <div className="mt-1 p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 font-mono text-indigo-300 break-all select-all text-[11px]">
+                  {result.blockchain_tx || "—"}
+                </div>
+              </div>
+              <div>
+                <span className="text-zinc-500 uppercase text-[10px] font-semibold tracking-wider">Claim Hash (Keccak-256)</span>
+                <div className="mt-1 p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 font-mono text-zinc-300 break-all select-all text-[11px]">
+                  {result.claim_hash || "—"}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <span className="text-zinc-500 uppercase text-[10px] font-semibold tracking-wider">Verdict</span>
+                  <div className="mt-1 p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 font-semibold text-white">
+                    {result.final_verdict} ({Math.round(result.overall_confidence * 100)}%)
+                  </div>
+                </div>
+                <div>
+                  <span className="text-zinc-500 uppercase text-[10px] font-semibold tracking-wider">Timestamp</span>
+                  <div className="mt-1 p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-300">
+                    {new Date(result.timestamp).toUTCString()}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-zinc-900/80 border border-zinc-800 text-zinc-500 text-[11px] leading-relaxed">
+                <span className="font-semibold text-zinc-400">💡</span> Proof is computed via <code className="text-indigo-400">keccak256(claim + verdict + confidence + evidence)</code>. To broadcast live to Sepolia, deploy <code className="text-indigo-400">FactCheckRegistry.sol</code> and set <code className="text-indigo-400">WEB3_RPC_URL</code> + <code className="text-indigo-400">PRIVATE_KEY</code> in <code className="text-indigo-400">.env</code>.
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <a href={`https://sepolia.etherscan.io/tx/${result.blockchain_tx}`} target="_blank" rel="noreferrer"
+                className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition">
+                Etherscan ↗
+              </a>
+              <button onClick={() => setProofOpen(false)} className="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold transition">Close</button>
+            </div>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen flex flex-col">
+          {/* Minimal top bar */}
+          <header className="border-b border-zinc-800/60 py-3 px-6 flex items-center justify-between">
+            <button onClick={() => { setResult(null); setTab("check"); }} className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+              🛡️ FacttoGo
+            </button>
+            <div className="flex gap-1.5">
+              <button onClick={() => setTab("check")} className={`px-3 py-1 rounded-lg text-xs font-medium transition ${tab === "check" ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"}`}>Checker</button>
+              <button onClick={() => setTab("history")} className={`px-3 py-1 rounded-lg text-xs font-medium transition ${tab === "history" ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"}`}>
+                Ledger {history.length > 0 && <span className="ml-1 text-[10px] text-zinc-500">({history.length})</span>}
+              </button>
+              <button onClick={() => setTab("about")} className={`px-3 py-1 rounded-lg text-xs font-medium transition ${tab === "about" ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"}`}>About</button>
+            </div>
+          </header>
+
+          <main className="flex-1">
+            {tab === "about" ? (
+              <div className="max-w-3xl mx-auto mt-8 px-4 space-y-8 pb-12">
+                <div>
+                  <h2 className="text-2xl font-extrabold text-white mb-2">About FacttoGo</h2>
+                  <p className="text-sm text-zinc-400 leading-relaxed">
+                    A decentralized, AI-powered fact-checking network that combines multi-agent consensus with cryptographic proof to combat misinformation at scale.
+                  </p>
+                </div>
+
+                {/* Problem */}
+                <div className="space-y-2">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">🎯 The Problem</h3>
+                  <p className="text-[13px] text-zinc-400 leading-relaxed">
+                    When a claim appears online — like "This new policy will reduce prices by 50%" — there's no fast, trustworthy way to verify it. Traditional fact-checking relies on human organizations that can take days. Meanwhile, misinformation spreads in minutes.
+                  </p>
+                </div>
+
+                {/* Solution */}
+                <div className="space-y-2">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">💡 Our Solution</h3>
+                  <p className="text-[13px] text-zinc-400 leading-relaxed">
+                    FacttoGo replaces the slow, centralized model with a decentralized network of specialized AI agents that analyze claims in parallel, reach consensus, and anchor the result on-chain — all in under 10 seconds.
+                  </p>
+                </div>
+
+                {/* How it works */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">⚙️ How It Works</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {[
+                      { step: "1", icon: "🌐", title: "Evidence Retrieval", desc: "The system searches the live web using DuckDuckGo and Wikipedia to gather 3–5 relevant, real-world sources for the claim." },
+                      { step: "2", icon: "🤖", title: "4-Agent Analysis", desc: "Four specialized AI agents — Science 🔬, Health 🩺, Politics 🏛️, and General Knowledge 🧠 — independently evaluate the claim using the retrieved evidence." },
+                      { step: "3", icon: "⚖️", title: "Consensus Engine", desc: "A confidence-weighted voting algorithm aggregates all four verdicts, detects conflicts, and produces a final verdict with an overall confidence score." },
+                      { step: "4", icon: "😈", title: "Devil's Advocate", desc: "A separate Devil's Advocate Agent can be triggered per agent to independently search for contradictory evidence and challenge each verdict — preventing AI groupthink." },
+                      { step: "5", icon: "⛓️", title: "On-Chain Proof", desc: "The claim, verdict, confidence, and evidence are hashed using Ethereum's keccak256 algorithm, creating a tamper-evident cryptographic proof that can be anchored to the blockchain." },
+                    ].map((s, i) => (
+                      <div key={i} className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/60 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">{s.icon}</span>
+                          <span className="text-xs font-bold text-white">Step {s.step}: {s.title}</span>
+                        </div>
+                        <p className="text-[12px] text-zinc-400 leading-relaxed">{s.desc}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Tech stack */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">🛠️ Tech Stack</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {[
+                      { name: "FastAPI", desc: "Python backend" },
+                      { name: "React 18", desc: "Frontend UI" },
+                      { name: "Groq / OpenAI", desc: "LLM inference" },
+                      { name: "DuckDuckGo + Wikipedia", desc: "Evidence search" },
+                      { name: "Solidity", desc: "Smart contract" },
+                      { name: "Web3.py + Keccak-256", desc: "Crypto proofs" },
+                      { name: "SQLite", desc: "Local database" },
+                      { name: "Tailwind CSS", desc: "Styling" },
+                      { name: "Ethereum Sepolia", desc: "Testnet chain" },
+                    ].map((t, i) => (
+                      <div key={i} className="p-3 rounded-lg bg-zinc-900/50 border border-zinc-800/50">
+                        <p className="text-xs font-semibold text-white">{t.name}</p>
+                        <p className="text-[11px] text-zinc-500">{t.desc}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Verdicts explained */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">🏷️ Verdict Types</h3>
+                  <div className="space-y-2">
+                    {[
+                      { label: "Verified True", color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", desc: "Strong consensus — agents agree the claim is supported by evidence." },
+                      { label: "Mostly True", color: "text-sky-400 bg-sky-400/10 border-sky-400/30", desc: "The claim is largely accurate but may have minor caveats." },
+                      { label: "False", color: "text-red-400 bg-red-400/10 border-red-400/30", desc: "Strong consensus — agents agree the claim contradicts available evidence." },
+                      { label: "Contested", color: "text-amber-400 bg-amber-400/10 border-amber-400/30", desc: "Agents disagree — domain-specific verdicts conflict with each other." },
+                      { label: "Insufficient Evidence", color: "text-zinc-400 bg-zinc-400/10 border-zinc-400/30", desc: "Not enough reliable sources found to make a determination." },
+                    ].map((v, i) => (
+                      <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-zinc-900/40 border border-zinc-800/40">
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded border whitespace-nowrap ${v.color}`}>{v.label}</span>
+                        <p className="text-[12px] text-zinc-400">{v.desc}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* CTA */}
+                <div className="pt-4 text-center">
+                  <button onClick={() => setTab("check")} className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition">
+                    Try It Now →
+                  </button>
+                </div>
+              </div>
+            ) : tab === "history" ? historyView : (
+              <>
+                {loading && loadingView}
+                {error && <div className="max-w-2xl mx-auto mt-6 p-4 rounded-xl bg-red-950/30 border border-red-500/30 text-red-300 text-sm">{error}</div>}
+                {result ? resultsView : (!loading && heroView)}
+              </>
+            )}
+          </main>
+
+          {proofModal}
+
+          <footer className="border-t border-zinc-800/40 py-4 text-center text-[11px] text-zinc-600">
+            FacttoGo · 4-Agent Consensus · Evidence-Grounded · On-Chain Proof
+          </footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+backend/models/
+backend/**/__pycache__/
+backend/**/*.pyc
+frontend/node_modules/
+backend/factchecks.db
+backend/.env
+.env
+*.egg-info/
+backend/training/runs/
+backend/models/*/runs/
