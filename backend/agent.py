@@ -22,7 +22,7 @@ load_dotenv()  # Fallback to default
 # ==========================================
 AGENT_PERSONAS = [
     {
-        "agent_name": "Science Agent",
+        "agent_name": "Science Uncle",
         "role_description": "Scientific & Empirical Evidence Specialist",
         "persona": (
             "You are a rigorous Scientific Fact-Checking Agent specializing in empirical data, "
@@ -32,7 +32,7 @@ AGENT_PERSONAS = [
         )
     },
     {
-        "agent_name": "Health Agent",
+        "agent_name": "Health Uncle",
         "role_description": "Medical & Public Health Specialist",
         "persona": (
             "You are a Public Health & Medical Fact-Checking Agent specializing in human biology, clinical guidelines, "
@@ -41,7 +41,7 @@ AGENT_PERSONAS = [
         )
     },
     {
-        "agent_name": "Politics Agent",
+        "agent_name": "Politics Uncle",
         "role_description": "Policy & Government Affairs Specialist",
         "persona": (
             "You are a Political & Policy Fact-Checking Agent specializing in legislation, government actions, "
@@ -50,7 +50,7 @@ AGENT_PERSONAS = [
         )
     },
     {
-        "agent_name": "General Agent",
+        "agent_name": "General Uncle",
         "role_description": "General Logic & Misinformation Specialist",
         "persona": (
             "You are a General Logic & Misconceptions Fact-Checking Agent specializing in critical thinking, "
@@ -298,4 +298,10 @@ def run_all_agents_parallel(
     # Keep consistent ordering: Science, Health, Politics, General
     order = ["Science Agent", "Health Agent", "Politics Agent", "General Agent"]
     results.sort(key=lambda x: order.index(x["agent_name"]) if x["agent_name"] in order else 99)
+
+    # Do not present a fabricated consensus when every agent failed before evaluating.
+    errors = [result for result in results if result.get("model_id") == "error"]
+    if results and len(errors) == len(results):
+        raise ValueError(errors[0]["reasoning"].removeprefix("Agent evaluation error: "))
+
     return results

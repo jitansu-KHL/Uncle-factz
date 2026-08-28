@@ -106,6 +106,8 @@ def record_verdict_onchain(
                     "gasPrice": w3.eth.gas_price
                 })
 
+                signed_tx = account.sign_transaction(tx)
+                tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction).hex()
                 if not tx_hash.startswith("0x"):
                     tx_hash = "0x" + tx_hash
                 if not claim_hash.startswith("0x"):
