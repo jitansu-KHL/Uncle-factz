@@ -9,7 +9,7 @@ disagrees with him. **Uncle-Factz** is what happens when you actually
 give that uncle a team of AI relatives who go check the facts before he
 hits forward.
 
-Built for **Learnathon 5.0** at my college — solving the *"Decentralized
+Solving the *"Decentralized
 Fact-Checking Network with GenAI Consensus"* problem statement, minus
 the part where it takes six months and a research lab to build.
 
@@ -155,20 +155,6 @@ something ready for the masses to rely on daily.
 
 Grandpa's already convinced that in this future version, he'd still be
 right most often. We'll let the reputation system decide that one.
-
----
-
-## 🎓 About This Project
-
-Team name - Bravo2alpha
-
-Built by a team of three for **Learnathon 5.0**, our college's
-hackathon, as a scoped-down solution to the *Decentralized
-Fact-Checking Network with GenAI Consensus* problem statement:
-
-- **Nitish** — Backend & core logic
-- **Prasanjit** — Creativity & concept
-- **Jitansu** — Frontend
 
 ---
 
